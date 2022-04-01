@@ -14,7 +14,13 @@ v1.0 - First release
 */
 /**************************************************************************/
 
+#include <driver/adc.h>
+#include <esp_adc_cal.h>
+#include <esp32-hal.h>
+#include <esp32-hal-gpio.h>
 #include "MQ135.h"
+
+static const char* TAG = "MQ135";
 
 /**************************************************************************/
 /*!
@@ -24,10 +30,12 @@ v1.0 - First release
 */
 /**************************************************************************/
 
+static esp_adc_cal_characteristics_t adc1_chars;
+static esp_adc_cal_characteristics_t adc2_chars;
+
 MQ135::MQ135(uint8_t pin) {
   _pin = pin;
 }
-
 
 /**************************************************************************/
 /*!
@@ -51,8 +59,12 @@ float MQ135::getCorrectionFactor(float t, float h) {
 */
 /**************************************************************************/
 float MQ135::getResistance() {
-  int val = analogRead(_pin);
-  return ((1023./(float)val) * 5. - 1.)*RLOAD;
+  float val = analogRead(_pin) * 2.450 / 4095.;
+  float ref_val = analogRead(33) * 2.450 / 4095.;
+  // Rs = 3*Vr*R/val -2
+  float Rs = 3. * ref_val * 10.0 / val - 2.;
+  ESP_LOGI(TAG, "analogRead = %5.3f, ref = %5.3f, Rs = %5.2f", val, ref_val, Rs);
+  return Rs;
 }
 
 /**************************************************************************/
@@ -78,7 +90,7 @@ float MQ135::getCorrectedResistance(float t, float h) {
 */
 /**************************************************************************/
 float MQ135::getPPM() {
-  return PARA * pow((getResistance()/RZERO), -PARB);
+  return PARA * pow((getResistance()/_rzero), -PARB);
 }
 
 /**************************************************************************/
@@ -93,7 +105,7 @@ float MQ135::getPPM() {
 */
 /**************************************************************************/
 float MQ135::getCorrectedPPM(float t, float h) {
-  return PARA * pow((getCorrectedResistance(t, h)/RZERO), -PARB);
+  return PARA * pow((getCorrectedResistance(t, h)/_rzero), -PARB);
 }
 
 /**************************************************************************/
@@ -120,4 +132,31 @@ float MQ135::getRZero() {
 /**************************************************************************/
 float MQ135::getCorrectedRZero(float t, float h) {
   return getCorrectedResistance(t, h) * pow((ATMOCO2/PARA), (1./PARB));
+}
+
+bool MQ135::calibrateRZero(float cal_ppm, float t, float h) {
+  auto measurement = getCorrectedPPM(t, h);
+  auto step = (measurement > cal_ppm) ? -.1 : +.1;
+  int it;
+  for (it =0; it<10000 ; it++) {
+    _rzero += step;
+    measurement = getCorrectedPPM(t,h);
+    if (step <0) {
+      if (measurement <= cal_ppm)
+        break;
+    } else {
+      if (measurement >= cal_ppm)
+        break;
+    }
+    if (it % 30 == 0) {
+      vTaskDelay(1); // let other tasks run
+    }
+  }
+  if ( it < 1000 ) {
+    ESP_LOGI(TAG, "Calibrated in %d iterations, RZero = %5.2f", it, _rzero);
+    return true;
+  } else {
+    ESP_LOGE(TAG, "Failed to calibrate in %d iterations", it);
+    return false;
+  }
 }

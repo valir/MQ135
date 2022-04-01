@@ -15,16 +15,12 @@ v1.0 - First release
 /**************************************************************************/
 #ifndef MQ135_H
 #define MQ135_H
-#if ARDUINO >= 100
- #include "Arduino.h"
-#else
- #include "WProgram.h"
-#endif
-
+#include "Arduino.h"
 /// The load resistance on the board
-#define RLOAD 10.0
+#define RLOAD 20.00
 /// Calibration resistance at atmospheric CO2 level
-#define RZERO 76.63
+
+#define RZERO 47.3 // obtained via the calibrateRZero call
 /// Parameters for calculating ppm of CO2 from sensor resistance
 #define PARA 116.6020682
 #define PARB 2.769034857
@@ -41,6 +37,7 @@ v1.0 - First release
 class MQ135 {
  private:
   uint8_t _pin;
+  float _rzero = RZERO;
 
  public:
   MQ135(uint8_t pin);
@@ -51,5 +48,6 @@ class MQ135 {
   float getCorrectedPPM(float t, float h);
   float getRZero();
   float getCorrectedRZero(float t, float h);
+  bool calibrateRZero(float ppm, float t, float h);
 };
 #endif
